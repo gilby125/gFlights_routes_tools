@@ -1,4 +1,4 @@
-FROM golang:1.20-alpine as builder
+FROM golang:1.21-alpine as builder
 
 WORKDIR /worker
 
@@ -8,10 +8,10 @@ RUN go mod download
 
 # COPY All things inside the project and build
 COPY . .
-RUN go build -o /project/go-docker/build/myapp .
+RUN go build -o /worker/google_api_worker .
 
 FROM alpine:latest
-COPY --from=builder /project/go-docker/build/myapp /project/go-docker/build/myapp
+COPY --from=builder /worker/google_api_worker /worker/google_api_worker
 
 EXPOSE 8080
-ENTRYPOINT [ "/project/go-docker/build/myapp" ]
+ENTRYPOINT [ "/google_api_worker" ]
