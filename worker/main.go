@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -70,6 +71,9 @@ func main() {
 		go worker(jobQueue, &wg, lang, db, ctx, &mu)
 	}
 
+	// Start HTTP server in a separate goroutine
+	go startHTTPServer()
+
 	// Wait for all workers to finish or cancellation
 	wg.Wait()
 	close(jobQueue)
@@ -86,6 +90,27 @@ func handleGracefulShutdown(cancel context.CancelFunc) {
 		log.Println("Received interrupt signal. Initiating shutdown.")
 		cancel() // Cancel the context to signal workers to exit
 	}()
+}
+
+func startHTTPServer() {
+	http.HandleFunc("/progress", progressHandler)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Starting HTTP server on port %s", port)
+	err := http.ListenAndServe(":"+port, nil)
+	if err != nil {
+		log.Fatalf("Error starting HTTP server: %v", err)
+	}
+}
+
+func progressHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	message := map[string]string{"progress": "Processing in progress"}
+	json.NewEncoder(w).Encode(message)
 }
 
 func processJobsFromPostgresNotification(ctx context.Context, jobQueue chan TripData, db *sql.DB, lang language.Tag, mu *sync.Mutex, wg *sync.WaitGroup) {
