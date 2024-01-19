@@ -10,7 +10,20 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+var (
+	enqueuedJobsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "enqueued_jobs_total",
+		Help: "Total number of enqueued jobs",
+	})
+)
+
+func init() {
+	// Register Prometheus metrics
+	prometheus.MustRegister(enqueuedJobsCounter)
+}
 
 type TripData struct {
 	ID         int
@@ -66,7 +79,8 @@ func getAllCities(db *sql.DB, query string) ([]string, error) {
 }
 
 // Generate all permutations of routes
-func generateAllRoutes(db *sql.DB) ([]TripData, error) {
+// Generate all permutations of routes with specified trip length range
+func generateAllRoutes(db *sql.DB, minTripLength, maxTripLength int) ([]TripData, error) {
 	srcCitiesQuery := "SELECT name FROM public.cities WHERE type = 'source';"
 	dstCitiesQuery := "SELECT name FROM public.cities WHERE type = 'destination';"
 
@@ -85,24 +99,26 @@ func generateAllRoutes(db *sql.DB) ([]TripData, error) {
 	for _, srcCity := range srcCities {
 		for _, dstCity := range dstCities {
 			if srcCity != dstCity {
-				// Create TripData without ID initially
-				tripData := TripData{
-					SrcCity:    srcCity,
-					DstCity:    dstCity,
-					TripLength: 0, // You may set a specific value for trip length if needed
-					StartTime:  time.Now(),
+				for tripLength := minTripLength; tripLength <= maxTripLength; tripLength += 50 {
+					// Create TripData without ID initially
+					tripData := TripData{
+						SrcCity:    srcCity,
+						DstCity:    dstCity,
+						TripLength: tripLength,
+						StartTime:  time.Now(),
+					}
+
+					// Enqueue job and get the auto-generated ID
+					id, err := enqueueJob(db, tripData)
+					if err != nil {
+						return nil, err
+					}
+
+					// Set the obtained ID in the TripData
+					tripData.ID = id
+
+					allRoutes = append(allRoutes, tripData)
 				}
-
-				// Enqueue job and get the auto-generated ID
-				id, err := enqueueJob(db, tripData)
-				if err != nil {
-					return nil, err
-				}
-
-				// Set the obtained ID in the TripData
-				tripData.ID = id
-
-				allRoutes = append(allRoutes, tripData)
 			}
 		}
 	}
@@ -117,7 +133,7 @@ func main() {
 	}
 
 	// Get the database connection string from environment variables
-	dbConnectionString := os.Getenv("DB_CONNECTION_STRING")
+	dbConnectionString := os.Getenv("DATABASE_URL")
 
 	// PostgreSQL database configuration
 	db, err := sql.Open("postgres", dbConnectionString)
@@ -126,8 +142,12 @@ func main() {
 	}
 	defer db.Close()
 
-	// Generate all routes
-	allRoutes, err := generateAllRoutes(db)
+	// Set the range of trip lengths you want to iterate over
+	const minTripLength = 6
+	const maxTripLength = 15
+
+	// Generate all routes within the specified trip length range
+	allRoutes, err := generateAllRoutes(db, minTripLength, maxTripLength)
 	if err != nil {
 		log.Fatal(err)
 	}
