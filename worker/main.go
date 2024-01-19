@@ -72,7 +72,7 @@ func main() {
 	}
 
 	// Start HTTP server in a separate goroutine
-	go startHTTPServer()
+	go startHTTPServer(db)
 
 	// Wait for all workers to finish or cancellation
 	wg.Wait()
@@ -92,8 +92,11 @@ func handleGracefulShutdown(cancel context.CancelFunc) {
 	}()
 }
 
-func startHTTPServer() {
+func startHTTPServer(db *sql.DB) {
 	http.HandleFunc("/progress", progressHandler)
+	http.HandleFunc("/tables", func(w http.ResponseWriter, r *http.Request) {
+		showTablesHandler(w, r, db)
+	})
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -107,6 +110,45 @@ func startHTTPServer() {
 	}
 }
 
+func showTablesHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Query the offers table
+	offersCount, err := getTableCount(db, "offers")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting offers count: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Query the jobs table
+	jobsCount, err := getTableCount(db, "jobs")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting jobs count: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare the response
+	response := map[string]int{
+		"offers_count": offersCount,
+		"jobs_count":   jobsCount,
+	}
+
+	// Encode the response as JSON
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error encoding response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+func getTableCount(db *sql.DB, tableName string) (int, error) {
+	var count int
+	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
 func progressHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	message := map[string]string{"progress": "Processing in progress"}
